@@ -1,0 +1,562 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
+local Lighting = game:GetService("Lighting")
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+local function getHumanoid()
+    local character = player.Character or player.CharacterAdded:Wait()
+    return character:WaitForChild("Humanoid")
+end
+
+local humanoid = getHumanoid()
+local defaultWalkSpeed = 16
+local defaultJumpPower = 50
+local speedBoost = 150
+local jumpHeightPower = 50
+local sistemaAtivo = false
+local guiVisible = true
+
+-- KEYBIND CONFIG
+local currentKeybind = Enum.KeyCode.R
+local flickKeybind = Enum.KeyCode.T
+local isRebindingSpeed = false
+local isRebindingFlick = false
+
+-- Color Customization Defaults
+local r, g, b = 0, 120, 255
+
+-- TOGGLE STATES
+local animationEnabled = false
+local antiFlingEnabled = false
+local fogEnabled = false
+local flickEnabled = false
+
+-- FLICK, SHAKE & FOG CONFIG
+local flickPower = 5
+local flickDirection = 1
+local fogEndDistance = 300
+local originalFogColor = Lighting.FogColor
+local originalFogEnd = Lighting.FogEnd
+local mobileTouchDelta = 0
+
+-- ANIMATION STOPPER CONFIG
+local SOUND_ID = "rbxassetid://6968135315"
+local TARGET_TOOL_NAME = "Gun"
+local COOLDOWN_DURATION = 5
+local actionSound = Instance.new("Sound")
+actionSound.SoundId = SOUND_ID
+actionSound.Volume = 1
+actionSound.Parent = SoundService
+
+-- GUI SETUP
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "KodasMenu"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+-- MOBILE OPEN/CLOSE TOGGLE BUTTON
+local mobileOpenBtn = Instance.new("TextButton")
+mobileOpenBtn.Size = UDim2.new(0, 50, 0, 50)
+mobileOpenBtn.Position = UDim2.new(0, 10, 0.4, 0)
+mobileOpenBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
+mobileOpenBtn.TextColor3 = Color3.fromRGB(0, 229, 255)
+mobileOpenBtn.Font = Enum.Font.GothamBold
+mobileOpenBtn.TextSize = 20
+mobileOpenBtn.Text = "⚡"
+mobileOpenBtn.Active = true
+mobileOpenBtn.Draggable = true
+mobileOpenBtn.Parent = screenGui
+
+local mobileBtnCorner = Instance.new("UICorner")
+mobileBtnCorner.CornerRadius = UDim.new(0, 25)
+mobileBtnCorner.Parent = mobileOpenBtn
+
+local mobileBtnStroke = Instance.new("UIStroke")
+mobileBtnStroke.Color = Color3.fromRGB(0, 229, 255)
+mobileBtnStroke.Thickness = 1.5
+mobileBtnStroke.Parent = mobileOpenBtn
+
+-- MAIN MENU PANEL (COMPACT SIZE)
+local mainPanel = Instance.new("Frame")
+mainPanel.Size = UDim2.new(0, 240, 0, 280)
+mainPanel.Position = UDim2.new(0.05, 0, 0.1, 0)
+mainPanel.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
+mainPanel.BorderSizePixel = 0
+mainPanel.Active = true
+mainPanel.Draggable = true
+mainPanel.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 10)
+mainCorner.Parent = mainPanel
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(0, 229, 255)
+mainStroke.Thickness = 1.5
+mainStroke.Transparency = 0.4
+mainStroke.Parent = mainPanel
+
+-- Title Header
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 0, 36)
+titleLabel.Position = UDim2.new(0, 0, 0, 0)
+titleLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+titleLabel.BorderSizePixel = 0
+titleLabel.Text = "⚡ KODAS MENU"
+titleLabel.TextColor3 = Color3.fromRGB(0, 229, 255)
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 13
+titleLabel.Parent = mainPanel
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = titleLabel
+
+-- SCROLLING CONTAINER
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(1, 0, 1, -36)
+scrollFrame.Position = UDim2.new(0, 0, 0, 36)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.BorderSizePixel = 0
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 680)
+scrollFrame.ScrollBarThickness = 5
+scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(0, 229, 255)
+scrollFrame.Active = true
+scrollFrame.Parent = mainPanel
+
+-- Main Speed Toggle Button inside menu
+local mainToggleButton = Instance.new("TextButton")
+mainToggleButton.Size = UDim2.new(1, -20, 0, 36)
+mainToggleButton.Position = UDim2.new(0, 10, 0, 10)
+mainToggleButton.BackgroundColor3 = Color3.fromRGB(r, g, b)
+mainToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+mainToggleButton.Font = Enum.Font.GothamBold
+mainToggleButton.TextSize = 12
+mainToggleButton.Text = "SPEED : OFF"
+mainToggleButton.Parent = scrollFrame
+
+local mainBtnCorner = Instance.new("UICorner")
+mainBtnCorner.CornerRadius = UDim.new(0, 6)
+mainBtnCorner.Parent = mainToggleButton
+
+-- Dynamic Fog Update Function
+local function updateMapFog()
+    if fogEnabled then
+        Lighting.FogColor = Color3.fromRGB(r, g, b)
+        Lighting.FogStart = 0
+        Lighting.FogEnd = fogEndDistance
+    else
+        Lighting.FogColor = originalFogColor
+        Lighting.FogEnd = originalFogEnd
+    end
+end
+
+-- Update button appearance and color theme
+local function atualizarBotao()
+    local userColor = Color3.fromRGB(r, g, b)
+    if sistemaAtivo then
+        mainToggleButton.Text = "SPEED : ON"
+        mainToggleButton.BackgroundColor3 = Color3.fromRGB(
+            math.min(r + 60, 255),
+            math.min(g + 60, 255),
+            math.min(b + 60, 255)
+        )
+    else
+        mainToggleButton.Text = "SPEED : OFF"
+        mainToggleButton.BackgroundColor3 = userColor
+    end
+    updateMapFog()
+end
+
+-- Toggle Buttons Helper
+local flickBtnReference = nil
+
+local function createToggleButton(name, yPos, initialState, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -20, 0, 28)
+    btn.Position = UDim2.new(0, 10, 0, yPos)
+    btn.BackgroundColor3 = initialState and Color3.fromRGB(0, 180, 130) or Color3.fromRGB(42, 42, 54)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.GothamMedium
+    btn.TextSize = 11
+    btn.Text = name .. " : " .. (initialState and "ON" or "OFF")
+    btn.Parent = scrollFrame
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
+
+    local isOn = initialState
+
+    btn.MouseButton1Click:Connect(function()
+        isOn = not isOn
+        btn.Text = name .. " : " .. (isOn and "ON" or "OFF")
+        btn.BackgroundColor3 = isOn and Color3.fromRGB(0, 180, 130) or Color3.fromRGB(42, 42, 54)
+        callback(isOn)
+    end)
+
+    if name == "🎯 FLICK MODE" then
+        flickBtnReference = btn
+    end
+
+    return btn
+end
+
+-- SPEED KEYBIND BUTTON
+local speedKeybindBtn = Instance.new("TextButton")
+speedKeybindBtn.Size = UDim2.new(1, -20, 0, 26)
+speedKeybindBtn.Position = UDim2.new(0, 10, 0, 218)
+speedKeybindBtn.BackgroundColor3 = Color3.fromRGB(42, 42, 54)
+speedKeybindBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedKeybindBtn.Font = Enum.Font.GothamMedium
+speedKeybindBtn.TextSize = 11
+speedKeybindBtn.Text = "🎹 SPEED KEY: " .. currentKeybind.Name
+speedKeybindBtn.Parent = scrollFrame
+
+local speedKeyCorner = Instance.new("UICorner")
+speedKeyCorner.CornerRadius = UDim.new(0, 6)
+speedKeyCorner.Parent = speedKeybindBtn
+
+speedKeybindBtn.MouseButton1Click:Connect(function()
+    isRebindingSpeed = true
+    speedKeybindBtn.Text = "🎹 [...] PRESS SPEED KEY"
+    speedKeybindBtn.BackgroundColor3 = Color3.fromRGB(255, 170, 0)
+end)
+
+-- FLICK KEYBIND BUTTON
+local flickKeybindBtn = Instance.new("TextButton")
+flickKeybindBtn.Size = UDim2.new(1, -20, 0, 26)
+flickKeybindBtn.Position = UDim2.new(0, 10, 0, 250)
+flickKeybindBtn.BackgroundColor3 = Color3.fromRGB(42, 42, 54)
+flickKeybindBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+flickKeybindBtn.Font = Enum.Font.GothamMedium
+flickKeybindBtn.TextSize = 11
+flickKeybindBtn.Text = "🎯 FLICK KEY: " .. flickKeybind.Name
+flickKeybindBtn.Parent = scrollFrame
+
+local flickKeyCorner = Instance.new("UICorner")
+flickKeyCorner.CornerRadius = UDim.new(0, 6)
+flickKeyCorner.Parent = flickKeybindBtn
+
+flickKeybindBtn.MouseButton1Click:Connect(function()
+    isRebindingFlick = true
+    flickKeybindBtn.Text = "🎯 [...] PRESS FLICK KEY"
+    flickKeybindBtn.BackgroundColor3 = Color3.fromRGB(255, 170, 0)
+end)
+
+-- Create Touch/Mouse Compatible Sliders
+local function createSlider(name, yPos, minVal, maxVal, startVal, callback)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -20, 0, 16)
+    label.Position = UDim2.new(0, 10, 0, yPos)
+    label.BackgroundTransparency = 1
+    label.Text = name .. ": " .. startVal
+    label.TextColor3 = Color3.fromRGB(200, 200, 220)
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 11
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = scrollFrame
+
+    local barBg = Instance.new("TextButton")
+    barBg.Size = UDim2.new(1, -20, 0, 12)
+    barBg.Position = UDim2.new(0, 10, 0, yPos + 18)
+    barBg.BackgroundColor3 = Color3.fromRGB(40, 40, 52)
+    barBg.Text = ""
+    barBg.Parent = scrollFrame
+
+    local barBgCorner = Instance.new("UICorner")
+    barBgCorner.CornerRadius = UDim.new(0, 4)
+    barBgCorner.Parent = barBg
+
+    local barFill = Instance.new("Frame")
+    barFill.Size = UDim2.new((startVal - minVal)/(maxVal - minVal), 0, 1, 0)
+    if name == "⚡ SPEED BOOST" then
+        barFill.BackgroundColor3 = Color3.fromRGB(0, 229, 255)
+    elseif name == "🦘 JUMP HEIGHT" then
+        barFill.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+    elseif name == "🎯 FLICK POWER" then
+        barFill.BackgroundColor3 = Color3.fromRGB(255, 180, 0)
+    elseif name == "🌫️ FOG DISTANCE" then
+        barFill.BackgroundColor3 = Color3.fromRGB(200, 160, 255)
+    elseif name == "🔴 RED" then
+        barFill.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+    elseif name == "🟢 GREEN" then
+        barFill.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
+    else
+        barFill.BackgroundColor3 = Color3.fromRGB(80, 160, 255)
+    end
+    barFill.Parent = barBg
+
+    local barFillCorner = Instance.new("UICorner")
+    barFillCorner.CornerRadius = UDim.new(0, 4)
+    barFillCorner.Parent = barFill
+
+    local dragging = false
+
+    local function updateFromInput(inputPos)
+        local mousePos = inputPos.X - barBg.AbsolutePosition.X
+        local ratio = math.clamp(mousePos / barBg.AbsoluteSize.X, 0, 1)
+        local val = math.floor(minVal + ratio * (maxVal - minVal))
+        label.Text = name .. ": " .. val
+        barFill.Size = UDim2.new(ratio, 0, 1, 0)
+        callback(val)
+    end
+
+    barBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            scrollFrame.ScrollingEnabled = false
+            updateFromInput(input.Position)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            updateFromInput(input.Position)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+            scrollFrame.ScrollingEnabled = true
+        end
+    end)
+end
+
+-- ==========================================
+-- OLD GUN ANIM SYSTEM
+-- ==========================================
+local lastUnequippedTime = 0
+local animConn1, animConn2, animConn3 = nil, nil, nil
+
+local function setupGunSystem(character)
+    local humanoid = character:FindFirstChild("Humanoid")
+    local animator = humanoid and humanoid:FindFirstChild("Animator")
+    if not animator then return end
+
+    if animConn1 then animConn1:Disconnect() end
+    if animConn2 then animConn2:Disconnect() end
+    if animConn3 then animConn3:Disconnect() end
+
+    lastUnequippedTime = 0
+
+    if animationEnabled then
+        animConn1 = animator.AnimationPlayed:Connect(function(track)
+            local tool = character:FindFirstChildOfClass("Tool")
+            local isHoldingGun = (tool and tool.Name == TARGET_TOOL_NAME)
+            local timeSinceUnequip = os.clock() - lastUnequippedTime
+            local withinCooldown = timeSinceUnequip <= COOLDOWN_DURATION
+            if isHoldingGun or withinCooldown then
+                if track.Priority == Enum.AnimationPriority.Action then
+                    track:Stop()
+                end
+            end
+        end)
+
+        animConn2 = character.ChildAdded:Connect(function(child)
+            if child:IsA("Tool") and child.Name == TARGET_TOOL_NAME then
+                actionSound:Play()
+            end
+        end)
+
+        animConn3 = character.ChildRemoved:Connect(function(child)
+            if child:IsA("Tool") and child.Name == TARGET_TOOL_NAME then
+                actionSound:Play()
+                lastUnequippedTime = os.clock()
+            end
+        end)
+    end
+end
+
+local function setAnimationSystem(enabled)
+    animationEnabled = enabled
+    if enabled then
+        if player.Character then setupGunSystem(player.Character) end
+    else
+        if animConn1 then animConn1:Disconnect() end
+        if animConn2 then animConn2:Disconnect() end
+        if animConn3 then animConn3:Disconnect() end
+    end
+end
+
+-- ==========================================
+-- ANTI-FLING SYSTEM
+-- ==========================================
+local antiFlingLoaded = false
+
+local function loadAntiFling()
+    if antiFlingLoaded then return end
+    task.spawn(function()
+        local success, err = pcall(function()
+            loadstring(game:HttpGet('https://raw.githubusercontent.com/Linux6699/DaHubRevival/main/AntiFling.lua'))()
+        end)
+        if not success then
+            warn("Anti-Fling failed to load:", err)
+        else
+            antiFlingLoaded = true
+        end
+    end)
+end
+
+local function setAntiFling(enabled)
+    antiFlingEnabled = enabled
+    if enabled then
+        loadAntiFling()
+    end
+end
+
+-- ==========================================
+-- BUILD PANEL ELEMENTS IN SCROLLABLE CONTAINER
+-- ==========================================
+
+-- TOGGLE BUTTONS
+createToggleButton("🎯 FLICK MODE", 54, flickEnabled, function(enabled)
+    flickEnabled = enabled
+end)
+createToggleButton("🔫 OLD GUN ANIM", 88, animationEnabled, setAnimationSystem)
+createToggleButton("🛡️ ANTI-FLING", 122, antiFlingEnabled, setAntiFling)
+createToggleButton("🌫️ MAP FOG", 156, fogEnabled, function(enabled)
+    fogEnabled = enabled
+    updateMapFog()
+end)
+
+-- SLIDERS
+createSlider("⚡ SPEED BOOST", 290, 16, 10000, speedBoost, function(val)
+    speedBoost = val
+end)
+
+createSlider("🦘 JUMP HEIGHT", 340, 1, 300, jumpHeightPower, function(val)
+    jumpHeightPower = val
+end)
+
+createSlider("🎯 FLICK POWER", 390, 1, 100, flickPower, function(val)
+    flickPower = val
+end)
+
+createSlider("🌫️ FOG DISTANCE", 440, 50, 2000, fogEndDistance, function(val)
+    fogEndDistance = val
+    updateMapFog()
+end)
+
+-- COLOUR SLIDERS
+createSlider("🔴 RED", 490, 0, 255, r, function(val)
+    r = val
+    atualizarBotao()
+end)
+createSlider("🟢 GREEN", 540, 0, 255, g, function(val)
+    g = val
+    atualizarBotao()
+end)
+createSlider("🔵 BLUE", 590, 0, 255, b, function(val)
+    b = val
+    atualizarBotao()
+end)
+
+-- ==========================================
+-- MAIN LOGIC & TOUCH/MOUSE HANDLERS
+-- ==========================================
+
+local function ToggleSystem()
+    sistemaAtivo = not sistemaAtivo
+    atualizarBotao()
+    if humanoid then
+        if not sistemaAtivo then
+            humanoid.WalkSpeed = defaultWalkSpeed
+            humanoid.JumpPower = defaultJumpPower
+        end
+    end
+end
+
+local function ToggleFlick()
+    flickEnabled = not flickEnabled
+    if flickBtnReference then
+        flickBtnReference.Text = "🎯 FLICK MODE : " .. (flickEnabled and "ON" or "OFF")
+        flickBtnReference.BackgroundColor3 = flickEnabled and Color3.fromRGB(0, 180, 130) or Color3.fromRGB(42, 42, 54)
+    end
+end
+
+local function ToggleGUI()
+    guiVisible = not guiVisible
+    mainPanel.Visible = guiVisible
+end
+
+mainToggleButton.MouseButton1Click:Connect(ToggleSystem)
+mobileOpenBtn.MouseButton1Click:Connect(ToggleGUI)
+
+-- TRACK MOBILE/TOUCH SHAKE DELTA
+UserInputService.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+        mobileTouchDelta = input.Delta.Magnitude
+    end
+end)
+
+-- KEYBINDS INPUT LISTENER
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+
+    if isRebindingSpeed and input.UserInputType == Enum.UserInputType.Keyboard then
+        currentKeybind = input.KeyCode
+        isRebindingSpeed = false
+        speedKeybindBtn.Text = "🎹 SPEED KEY: " .. currentKeybind.Name
+        speedKeybindBtn.BackgroundColor3 = Color3.fromRGB(42, 42, 54)
+        return
+    end
+
+    if isRebindingFlick and input.UserInputType == Enum.UserInputType.Keyboard then
+        flickKeybind = input.KeyCode
+        isRebindingFlick = false
+        flickKeybindBtn.Text = "🎯 FLICK KEY: " .. flickKeybind.Name
+        flickKeybindBtn.BackgroundColor3 = Color3.fromRGB(42, 42, 54)
+        return
+    end
+
+    if input.KeyCode == currentKeybind then
+        ToggleSystem()
+    elseif input.KeyCode == flickKeybind then
+        ToggleFlick()
+    elseif input.KeyCode == Enum.KeyCode.K then
+        ToggleGUI()
+    end
+end)
+
+-- Heartbeat Camera Flick, Jump Power & Speed Multiplier (Cross-Platform)
+RunService.Heartbeat:Connect(function()
+    if sistemaAtivo and humanoid then
+        humanoid.UseJumpPower = true
+        humanoid.JumpPower = jumpHeightPower
+
+        local state = humanoid:GetState()
+        if state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall then
+            
+            -- Camera Auto-flick
+            if flickEnabled and camera then
+                flickDirection = -flickDirection
+                local flickAngle = math.rad(flickPower * 0.8) * flickDirection
+                camera.CFrame = camera.CFrame * CFrame.Angles(0, flickAngle, 0)
+            end
+
+            local delta = UserInputService:GetMouseDelta().Magnitude
+            local totalShake = math.max(delta, mobileTouchDelta)
+            
+            local effectiveShake = flickEnabled and (totalShake + (flickPower * 8)) or totalShake
+            local shakeMultiplier = math.clamp(effectiveShake * 2.5, 1, 100)
+            
+            humanoid.WalkSpeed = speedBoost * shakeMultiplier
+            mobileTouchDelta = math.max(0, mobileTouchDelta - 2)
+        else
+            humanoid.WalkSpeed = defaultWalkSpeed
+        end
+    end
+end)
+
+player.CharacterAdded:Connect(function(char)
+    humanoid = char:WaitForChild("Humanoid")
+    setupGunSystem(char)
+    atualizarBotao()
+end)
+
+atualizarBotao()
